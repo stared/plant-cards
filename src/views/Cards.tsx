@@ -20,7 +20,7 @@ const FALLBACK = [
 interface Question {
   species: SpeciesGroup;
   photo: Blob;
-  options: string[]; // Polish names (or latin if missing)
+  options: string[];
   correctOption: string;
   dueCount: number;
 }
@@ -48,9 +48,8 @@ export function Cards() {
     let pool = due;
     if (pool.length === 0) {
       if (!anyway) return setQuestion('done');
-      pool = withDue; // practice mode: anything goes
+      pool = withDue;
     }
-    // Most overdue first, with a bit of randomness among the top few.
     pool.sort((a, b) => a.srs.due - b.srs.due);
     const pick = pool[Math.floor(Math.random() * Math.min(3, pool.length))];
     const species = pick.g;
@@ -61,7 +60,7 @@ export function Cards() {
     const fallback = FALLBACK.filter(
       (f) => f.latin !== species.latin && !others.includes(f.namePl) && f.namePl !== correctOption,
     ).map(displayName);
-    const distractors = shuffle([...shuffle(others), ...shuffle(fallback)].slice(0, 20)).slice(0, 3);
+    const distractors = [...shuffle(others), ...shuffle(fallback)].slice(0, 3);
     const options = shuffle([correctOption, ...distractors]);
 
     setQuestion({ species, photo, options, correctOption, dueCount });
@@ -76,18 +75,18 @@ export function Cards() {
   if (question === 'empty')
     return (
       <div>
-        <h1>Flashcards</h1>
+        <div class="title">Cards</div>
         <p class="hint">No identified plants yet — snap a few first.</p>
       </div>
     );
   if (question === 'done')
     return (
-      <div>
-        <h1>Flashcards</h1>
-        <p class="hint">All done for now — nothing due. 🎉</p>
-        <div class="row-buttons">
+      <div class="card">
+        <div class="title">Cards</div>
+        <div class="busy">
+          <span>Nothing due right now.</span>
           <button
-            class="small"
+            class="btn"
             onClick={() => {
               setPracticeAnyway(true);
               nextQuestion(true);
@@ -99,8 +98,9 @@ export function Cards() {
       </div>
     );
 
-  const answered = picked !== null;
   const q = question;
+  const answered = picked !== null;
+  const wasRight = picked === q.correctOption;
 
   async function answer(opt: string) {
     if (answered) return;
@@ -108,17 +108,22 @@ export function Cards() {
     await grade(q.species.latin, opt === q.correctOption);
   }
 
-  const s = question.species;
+  // After answering, collapse to the options that matter.
+  const shown = answered ? q.options.filter((o) => o === q.correctOption || o === picked) : q.options;
+  const s = q.species;
+
   return (
-    <div>
-      <p class="stats-line">
-        {question.dueCount > 0 ? `${question.dueCount} due` : 'practice mode'}
-      </p>
-      <BlobImg blob={question.photo} class="card-photo" />
-      <h2 style="margin-bottom:10px">What plant is this?</h2>
-      {question.options.map((opt) => {
+    <div class="card">
+      <div class="row spread">
+        <div class="title" style="margin:0">
+          {answered ? (wasRight ? 'Correct' : 'Not quite') : 'What plant is this?'}
+        </div>
+        <span class="muted">{q.dueCount > 0 ? `${q.dueCount} due` : 'practice'}</span>
+      </div>
+      <BlobImg blob={q.photo} class="card-photo" />
+      {shown.map((opt) => {
         let cls = 'option';
-        if (answered && opt === question.correctOption) cls += ' correct';
+        if (answered && opt === q.correctOption) cls += ' correct';
         else if (answered && opt === picked) cls += ' wrong';
         return (
           <button key={opt} class={cls} onClick={() => answer(opt)}>
@@ -128,17 +133,18 @@ export function Cards() {
       })}
       {answered && (
         <div class="reveal">
-          <b>{displayName(s)}</b>
-          <div class="latin-name">
-            {s.latin}
+          <div class="sub">
+            <i>{s.latin}</i>
             {s.nameEn ? ` · ${s.nameEn}` : ''}
           </div>
-          {s.entries[0].description && <div>{s.entries[0].description}</div>}
-          <div class="row-buttons">
-            <button class="small" onClick={() => nextQuestion()}>
-              Next →
-            </button>
-          </div>
+          {s.entries[0].description && <p class="desc clamp-3" style="margin-top:6px">{s.entries[0].description}</p>}
+        </div>
+      )}
+      {answered && (
+        <div class="next">
+          <button class="btn primary block" onClick={() => nextQuestion()}>
+            Next
+          </button>
         </div>
       )}
     </div>

@@ -5,11 +5,13 @@ import { identify } from '../identify';
 import { getSettings } from '../settings';
 import { ensureSrs } from '../srs';
 import { BlobImg, fmtDate } from './util';
+import { Icon } from './icons';
 
 export function EntryView({ id, navigate }: { id: number; navigate: (r: Route) => void }) {
   const [entry, setEntry] = useState<Entry | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fit, setFit] = useState(false); // tap photo: cropped ↔ whole photo
 
   useEffect(() => {
     db.entries.get(id).then((e) => setEntry(e ?? null));
@@ -66,71 +68,79 @@ export function EntryView({ id, navigate }: { id: number; navigate: (r: Route) =
   }
 
   async function remove() {
-    if (!window.confirm('Delete this photo entry?')) return;
+    if (!window.confirm('Delete this photo?')) return;
     await db.entries.delete(id);
     navigate({ view: 'collection' });
   }
 
   const unidentified = entry.latin === UNIDENTIFIED;
+  const pct = entry.confidence > 0 ? `${Math.round(entry.confidence * 100)}%` : '';
 
   return (
     <div>
       <button class="back" onClick={() => navigate(unidentified ? { view: 'collection' } : { view: 'species', latin: entry.latin })}>
-        ‹ Back
+        <Icon name="back" size={18} /> {unidentified ? 'Plants' : entry.namePl || entry.latin}
       </button>
-      <BlobImg blob={entry.photo} class="entry-photo" />
-      {error && <div class="error">{error}</div>}
-      <h1>
-        {unidentified ? 'Unidentified' : entry.namePl || entry.nameEn || entry.latin}
-        {entry.review && !unidentified && <span class="badge">check me</span>}
-      </h1>
-      {!unidentified && (
-        <p class="latin-name">
-          {entry.latin}
-          {entry.nameEn ? ` · ${entry.nameEn}` : ''}
-          {entry.confidence > 0 ? ` · ${Math.round(entry.confidence * 100)}%` : ''}
-        </p>
-      )}
-      {entry.description && <p class="desc">{entry.description}</p>}
+      <BlobImg blob={entry.photo} class={fit ? 'hero fit' : 'hero'} onClick={() => setFit(!fit)} />
+      {error && <div class="notice error">{error}</div>}
 
-      {entry.candidates.length > 1 && (
-        <div>
-          <p class="hint">Other candidates — tap to switch:</p>
-          <div class="chips">
-            {entry.candidates.map((c, i) => (
-              <button key={c.latin} class={c.latin === entry.latin ? 'chip selected' : 'chip'} onClick={() => pickCandidate(i)}>
-                {c.namePl || c.latin} ({Math.round(c.confidence * 100)}%)
-              </button>
-            ))}
-          </div>
+      <div class="headline">{unidentified ? 'Unidentified' : entry.namePl || entry.nameEn || entry.latin}</div>
+      {!unidentified && (
+        <div class="sub">
+          <i>{entry.latin}</i>
+          {entry.nameEn ? ` · ${entry.nameEn}` : ''}
+          {pct && (
+            <span class="muted">
+              {' '}
+              · {entry.review && <span class="dot" />}
+              {pct}
+            </span>
+          )}
         </div>
       )}
 
-      <p class="meta">
-        📅 {fmtDate(entry.takenAt)}
-        <br />
+      {entry.candidates.length > 1 && (
+        <div class="chips">
+          {entry.candidates.map((c, i) => (
+            <button key={c.latin} class={c.latin === entry.latin ? 'chip selected' : 'chip'} onClick={() => pickCandidate(i)}>
+              {c.namePl || c.latin} · {Math.round(c.confidence * 100)}%
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div class="meta">
+        <span>{fmtDate(entry.takenAt)}</span>
         {entry.lat != null && entry.lon != null ? (
-          <a href={`https://maps.apple.com/?ll=${entry.lat},${entry.lon}&q=${encodeURIComponent(entry.namePl || entry.latin)}`} target="_blank" rel="noreferrer">
-            📍 {entry.lat.toFixed(5)}, {entry.lon.toFixed(5)} ({entry.locSource})
+          <a
+            href={`https://maps.apple.com/?ll=${entry.lat},${entry.lon}&q=${encodeURIComponent(entry.namePl || entry.latin)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Icon name="pin" size={13} />
+            {entry.lat.toFixed(4)}, {entry.lon.toFixed(4)}
           </a>
         ) : (
-          <span>📍 no location</span>
+          <span>no location</span>
         )}
-      </p>
+      </div>
 
-      <div class="row-buttons">
+      {entry.description && <p class="desc">{entry.description}</p>}
+
+      <div class="divider" />
+      <div class="row">
         {busy ? (
-          <span class="hint">Identifying…</span>
+          <span class="muted">Identifying…</span>
         ) : (
           <>
-            <button class="small" onClick={reIdentify}>
-              🔄 Re-identify
+            <button class="btn sm" onClick={reIdentify}>
+              <Icon name="refresh" size={15} /> Re-identify
             </button>
-            <button class="small" onClick={editManually}>
-              ✏️ Edit name
+            <button class="btn sm" onClick={editManually}>
+              <Icon name="edit" size={15} /> Edit
             </button>
-            <button class="small danger" onClick={remove}>
-              🗑 Delete
+            <button class="btn sm ghost danger" onClick={remove} style="margin-left:auto">
+              <Icon name="trash" size={15} />
             </button>
           </>
         )}

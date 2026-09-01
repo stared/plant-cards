@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { registerSW } from 'virtual:pwa-register';
-import { App } from './app';
+import { App, type Route } from './app';
 import { getSettings, saveSettings } from './settings';
 import './style.css';
 
@@ -17,4 +17,13 @@ if (hashKey) {
 // Ask the browser to protect our storage from eviction.
 navigator.storage?.persist?.().catch(() => {});
 
-render(<App />, document.getElementById('app')!);
+async function start() {
+  let initial: Route | undefined;
+  if (import.meta.env.DEV) {
+    const dev = await import('./dev');
+    if (location.hash.includes('seed')) await dev.seed();
+    initial = dev.routeFromHash() ?? undefined;
+  }
+  render(<App initial={initial} />, document.getElementById('app')!);
+}
+start();

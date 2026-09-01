@@ -12,8 +12,8 @@ export function SettingsView() {
     (async () => {
       const persisted = (await navigator.storage?.persisted?.()) ?? false;
       const est = await navigator.storage?.estimate?.();
-      const used = est?.usage ? `${(est.usage / 1e6).toFixed(1)} MB used` : '';
-      setStorageInfo(`${persisted ? 'persistent storage granted' : 'storage not marked persistent'}${used ? ` · ${used}` : ''}`);
+      const used = est?.usage ? `${(est.usage / 1e6).toFixed(1)} MB` : '';
+      setStorageInfo([used, persisted ? 'persistent' : 'not persistent'].filter(Boolean).join(' · '));
     })();
   }, []);
 
@@ -38,7 +38,7 @@ export function SettingsView() {
     files['data.json'] = strToU8(
       JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), entries: metaEntries, srs }, null, 1),
     );
-    const zipped = zipSync(files, { level: 0 }); // photos are already JPEG-compressed
+    const zipped = zipSync(files, { level: 0 });
     const blob = new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -84,57 +84,61 @@ export function SettingsView() {
 
   return (
     <div>
-      <h1>Settings</h1>
+      <div class="title">Settings</div>
       <div class="field">
-        <label>OpenRouter API key</label>
+        <div class="label">OpenRouter API key</div>
         <input
           type="password"
           value={s.apiKey}
-          placeholder="sk-or-..."
+          placeholder="sk-or-…"
           onInput={(e) => set('apiKey', (e.currentTarget as HTMLInputElement).value.trim())}
         />
       </div>
       <div class="field">
-        <label>Model (OpenRouter id)</label>
+        <div class="label">Model</div>
         <input
           type="text"
           value={s.model}
           placeholder={DEFAULT_MODEL}
+          autocapitalize="off"
+          autocorrect="off"
           onInput={(e) => set('model', (e.currentTarget as HTMLInputElement).value.trim() || DEFAULT_MODEL)}
         />
       </div>
       <div class="field">
-        <label>Description language</label>
+        <div class="label">Description language</div>
         <select value={s.descLang} onChange={(e) => set('descLang', (e.currentTarget as HTMLSelectElement).value as 'pl' | 'en')}>
-          <option value="pl">polski</option>
+          <option value="pl">Polski</option>
           <option value="en">English</option>
         </select>
       </div>
 
       <div class="section">
-        <h2>Data</h2>
-        <p class="hint" style="margin:8px 0 12px">
-          {storageInfo}
-        </p>
-        {msg && <p class="hint" style="margin-bottom:12px">{msg}</p>}
-        <div class="row-buttons" style="margin-top:0">
-          <button class="small" onClick={exportZip}>
-            ⬇️ Export backup (zip)
+        <div class="row spread" style="margin-bottom:12px">
+          <div class="label" style="margin:0">
+            Data
+          </div>
+          <span class="muted">{storageInfo}</span>
+        </div>
+        {msg && <div class="notice">{msg}</div>}
+        <div class="row">
+          <button class="btn sm" onClick={exportZip}>
+            Export backup
           </button>
-          <label class="small" style="display:inline-block;cursor:pointer;padding:8px 14px;background:var(--panel2);border-radius:10px;font-size:14px">
-            ⬆️ Import backup
-            <input type="file" accept=".zip,application/zip" hidden onChange={importZip} />
+          <label class="btn sm file-btn">
+            Import backup
+            <input type="file" accept=".zip,application/zip" onChange={importZip} />
           </label>
-          <button class="small danger" onClick={wipe}>
-            🗑 Delete everything
+          <button class="btn sm ghost danger" onClick={wipe} style="margin-left:auto">
+            Delete all
           </button>
         </div>
       </div>
 
       <div class="section">
         <p class="hint">
-          Everything is stored locally on this device (IndexedDB). Add the app to your home screen
-          on iPhone so iOS never auto-cleans the data. Export a backup now and then.
+          Everything is stored on this device. Add the app to your home screen so iOS never auto-cleans it, and export a
+          backup now and then.
         </p>
       </div>
     </div>

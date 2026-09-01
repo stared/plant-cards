@@ -5,6 +5,7 @@ import { Species } from './views/Species';
 import { EntryView } from './views/Entry';
 import { Cards } from './views/Cards';
 import { SettingsView } from './views/Settings';
+import { Icon } from './views/icons';
 
 export type Route =
   | { view: 'capture' }
@@ -15,14 +16,14 @@ export type Route =
   | { view: 'settings' };
 
 const TABS: { route: Route; icon: string; label: string }[] = [
-  { route: { view: 'capture' }, icon: '📷', label: 'Snap' },
-  { route: { view: 'collection' }, icon: '🌿', label: 'Plants' },
-  { route: { view: 'cards' }, icon: '🃏', label: 'Cards' },
-  { route: { view: 'settings' }, icon: '⚙️', label: 'Settings' },
+  { route: { view: 'capture' }, icon: 'camera', label: 'Snap' },
+  { route: { view: 'collection' }, icon: 'leaf', label: 'Plants' },
+  { route: { view: 'cards' }, icon: 'cards', label: 'Cards' },
+  { route: { view: 'settings' }, icon: 'sliders', label: 'Settings' },
 ];
 
-export function App() {
-  const [route, setRoute] = useState<Route>({ view: 'capture' });
+export function App({ initial }: { initial?: Route }) {
+  const [route, setRoute] = useState<Route>(initial ?? { view: 'capture' });
 
   let page;
   switch (route.view) {
@@ -53,13 +54,9 @@ export function App() {
       <main class="page">{page}</main>
       <nav class="tabbar">
         {TABS.map((t) => (
-          <button
-            key={t.route.view}
-            class={activeTab === t.route.view ? 'tab active' : 'tab'}
-            onClick={() => setRoute(t.route)}
-          >
-            <span class="tab-icon">{t.icon}</span>
-            <span class="tab-label">{t.label}</span>
+          <button key={t.route.view} class={activeTab === t.route.view ? 'tab active' : 'tab'} onClick={() => setRoute(t.route)}>
+            <Icon name={t.icon} size={22} />
+            <span>{t.label}</span>
           </button>
         ))}
       </nav>
