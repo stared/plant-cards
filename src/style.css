@@ -503,6 +503,7 @@ a {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
+  font-size: 16px; /* <16px makes iOS zoom the page when focusing */
   outline: none;
   -webkit-appearance: none;
   appearance: none;

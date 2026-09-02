@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { Route } from '../app';
+import type { Nav } from '../app';
 import { speciesGroups, UNIDENTIFIED, type SpeciesGroup } from '../db';
+import { getSettings } from '../settings';
+import { displayName } from '../species';
 import { BlobImg } from './util';
 
-export function Collection({ navigate }: { navigate: (r: Route) => void }) {
+export function Collection({ nav }: { nav: Nav }) {
   const [groups, setGroups] = useState<SpeciesGroup[] | null>(null);
+  const lang = getSettings().descLang;
 
   useEffect(() => {
     speciesGroups().then(setGroups);
@@ -25,16 +28,23 @@ export function Collection({ navigate }: { navigate: (r: Route) => void }) {
         </span>
       </div>
       {groups.length === 0 && <p class="hint">Nothing here yet — snap your first plant.</p>}
-      {groups.map((g) => (
-        <div key={g.latin} class="list-row" onClick={() => navigate({ view: 'species', latin: g.latin })}>
-          <BlobImg blob={g.entries[0].photo} />
-          <div class="names">
-            <div>{g.latin === UNIDENTIFIED ? 'Unidentified' : g.namePl || g.nameEn || g.latin}</div>
-            {g.latin !== UNIDENTIFIED && <div class="latin">{g.latin}</div>}
+      {groups.map((g) => {
+        const unidentified = g.latin === UNIDENTIFIED;
+        const needsReview = !unidentified && g.entries.some((e) => e.review);
+        return (
+          <div key={g.latin} class="list-row" onClick={() => nav.go({ view: 'species', latin: g.latin })}>
+            <BlobImg blob={g.entries[0].photo} />
+            <div class="names">
+              <div>
+                {needsReview && <span class="dot" />}
+                {unidentified ? 'Unidentified' : displayName(g, lang)}
+              </div>
+              {!unidentified && <div class="latin">{g.latin}</div>}
+            </div>
+            <div class="count">{g.entries.length}</div>
           </div>
-          <div class="count">{g.entries.length}</div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

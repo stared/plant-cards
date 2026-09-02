@@ -10,7 +10,8 @@ simple spaced repetition.
 ```sh
 pnpm install
 pnpm dev          # http://localhost:5173
-pnpm build        # static output in dist/
+pnpm test         # unit tests (vitest)
+pnpm build        # typecheck + tests + static output in dist/
 ```
 
 Then open **Settings** in the app and paste your OpenRouter API key

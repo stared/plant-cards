@@ -48,6 +48,11 @@ class PlantDB extends Dexie {
 
 export const db = new PlantDB();
 
+/** Re-label every entry of one species (rename / merge into another). */
+export async function renameSpecies(from: string, to: { latin: string; namePl: string; nameEn: string }): Promise<number> {
+  return db.entries.where('latin').equals(from).modify({ ...to, review: false });
+}
+
 export interface SpeciesGroup {
   latin: string;
   namePl: string;

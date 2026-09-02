@@ -1,17 +1,29 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Route } from '../app';
+import type { Nav } from '../app';
 import { db, UNIDENTIFIED, type Entry } from '../db';
 import { downscale } from '../image';
-import { getPosition, exifLocation, exifDate } from '../geo';
+import { getPosition, exifLocation, exifDate, type Loc } from '../geo';
 import { identify } from '../identify';
-import { getSettings } from '../settings';
+import { getSettings, modelOf } from '../settings';
+import { applyIdentification } from '../species';
 import { ensureSrs } from '../srs';
 import { BlobImg } from './util';
 import { Icon } from './icons';
 
-const REVIEW_THRESHOLD = 0.75;
+// A library photo without EXIF GPS gets the current position only if it was taken just now;
+// otherwise we would tag an old photo with wherever the phone is today.
+const RECENT_MS = 60 * 60 * 1000;
 
-export function Capture({ navigate }: { navigate: (r: Route) => void }) {
+async function locate(file: File, fromLibrary: boolean): Promise<{ loc: Loc | null; takenAt: number }> {
+  if (!fromLibrary) return { loc: await getPosition(), takenAt: Date.now() };
+  const [exifLoc, exifTakenAt] = await Promise.all([exifLocation(file), exifDate(file)]);
+  const takenAt = exifTakenAt ?? Date.now();
+  if (exifLoc) return { loc: exifLoc, takenAt };
+  const recent = Math.abs(Date.now() - takenAt) < RECENT_MS;
+  return { loc: recent ? await getPosition() : null, takenAt };
+}
+
+export function Capture({ nav }: { nav: Nav }) {
   const camRef = useRef<HTMLInputElement>(null);
   const libRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -28,57 +40,39 @@ export function Capture({ navigate }: { navigate: (r: Route) => void }) {
     setError(null);
     setBusy('Reading photo');
     try {
-      const locPromise = (async () => {
-        if (fromLibrary) {
-          const fromExif = await exifLocation(file);
-          if (fromExif) return fromExif;
-        }
-        return getPosition();
-      })();
-      const takenAtPromise = fromLibrary ? exifDate(file) : Promise.resolve(null);
-
+      const locPromise = locate(file, fromLibrary);
       const photo = await downscale(file);
       setBusy('Identifying');
       const idPromise = identify(photo, settings).catch((e: Error) => e);
 
-      const [loc, exifTakenAt, result] = await Promise.all([locPromise, takenAtPromise, idPromise]);
-
-      const entry: Entry = {
+      // Save first so the photo survives a failed/aborted identification (or an app reload).
+      const { loc, takenAt } = await locPromise;
+      const id = (await db.entries.add({
         latin: UNIDENTIFIED,
         namePl: '',
         nameEn: '',
         description: '',
         candidates: [],
         confidence: 0,
-        takenAt: exifTakenAt ?? Date.now(),
+        takenAt,
         lat: loc?.lat ?? null,
         lon: loc?.lon ?? null,
         locSource: loc?.source ?? 'none',
         photo,
-        model: settings.model,
+        model: modelOf(settings),
         review: true,
-      };
+      })) as number;
 
+      const result = await idPromise;
       if (result instanceof Error) {
         setError(`Identification failed — photo saved, retry from the entry. ${result.message}`);
-      } else if (result.candidates.length === 0) {
-        setError('No plant recognized. Saved as unidentified.');
-        entry.description = result.description;
       } else {
-        const top = result.candidates[0];
-        entry.latin = top.latin;
-        entry.namePl = top.namePl;
-        entry.nameEn = top.nameEn;
-        entry.confidence = top.confidence;
-        entry.candidates = result.candidates;
-        entry.description = result.description;
-        entry.review = top.confidence < REVIEW_THRESHOLD;
-        await ensureSrs(top.latin);
+        if (result.candidates.length === 0) setError('No plant recognized. Saved as unidentified.');
+        else await ensureSrs(result.candidates[0].latin);
+        await db.entries.update(id, applyIdentification(result, modelOf(settings)));
       }
-
-      const id = await db.entries.add(entry);
       setBusy(null);
-      navigate({ view: 'entry', id: id as number });
+      nav.go({ view: 'entry', id });
     } catch (e) {
       setBusy(null);
       setError(e instanceof Error ? e.message : String(e));
@@ -114,7 +108,7 @@ export function Capture({ navigate }: { navigate: (r: Route) => void }) {
           <div class="label">Recent</div>
           <div class="recent">
             {recent.map((e) => (
-              <BlobImg key={e.id} blob={e.photo} onClick={() => navigate({ view: 'entry', id: e.id! })} />
+              <BlobImg key={e.id} blob={e.photo} onClick={() => nav.go({ view: 'entry', id: e.id! })} />
             ))}
           </div>
         </div>

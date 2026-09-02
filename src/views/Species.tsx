@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { Route } from '../app';
+import type { Nav } from '../app';
 import { db, UNIDENTIFIED, type Entry } from '../db';
+import { getSettings } from '../settings';
+import { displayName } from '../species';
 import { BlobImg } from './util';
 import { Icon } from './icons';
 
-export function Species({ latin, navigate }: { latin: string; navigate: (r: Route) => void }) {
+export function Species({ latin, nav }: { latin: string; nav: Nav }) {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const lang = getSettings().descLang;
 
   useEffect(() => {
     db.entries.where('latin').equals(latin).sortBy('takenAt').then((e) => setEntries(e.reverse()));
@@ -15,17 +18,18 @@ export function Species({ latin, navigate }: { latin: string; navigate: (r: Rout
   if (!entries) return <div class="busy">Loading…</div>;
   const first = entries[0];
   const unidentified = latin === UNIDENTIFIED;
+  const otherName = first && (lang === 'pl' ? first.nameEn : first.namePl);
 
   return (
     <div>
-      <button class="back" onClick={() => navigate({ view: 'collection' })}>
+      <button class="back" onClick={() => nav.back({ view: 'collection' })}>
         <Icon name="back" size={18} /> Plants
       </button>
-      <div class="headline">{unidentified ? 'Unidentified' : first?.namePl || first?.nameEn || latin}</div>
+      <div class="headline">{unidentified ? 'Unidentified' : first ? displayName(first, lang) : latin}</div>
       {!unidentified && (
         <div class="sub">
           <i>{latin}</i>
-          {first?.nameEn ? ` · ${first.nameEn}` : ''}
+          {otherName ? ` · ${otherName}` : ''}
         </div>
       )}
       {first?.description && (
@@ -36,9 +40,10 @@ export function Species({ latin, navigate }: { latin: string; navigate: (r: Rout
       <div class="label" style="margin-top:14px">
         {entries.length} photo{entries.length === 1 ? '' : 's'}
       </div>
+      {entries.length === 0 && <p class="hint">No photos left under this name.</p>}
       <div class="grid">
         {entries.map((e) => (
-          <BlobImg key={e.id} blob={e.photo} onClick={() => navigate({ view: 'entry', id: e.id! })} />
+          <BlobImg key={e.id} blob={e.photo} onClick={() => nav.go({ view: 'entry', id: e.id! })} />
         ))}
       </div>
     </div>

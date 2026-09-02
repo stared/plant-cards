@@ -1,23 +1,25 @@
-import { useEffect, useState } from 'preact/hooks';
-import { db, UNIDENTIFIED, speciesGroups, type SpeciesGroup } from '../db';
-import { grade, newSrs } from '../srs';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { db, UNIDENTIFIED, speciesGroups, type SpeciesGroup, type Srs } from '../db';
+import { getSettings } from '../settings';
+import { displayName, type Names } from '../species';
+import { grade, isLearning, newSrs } from '../srs';
 import { BlobImg, shuffle } from './util';
 
 // Distractor pool for when the collection is still small.
-const FALLBACK = [
-  { latin: 'Taraxacum officinale', namePl: 'mniszek lekarski' },
-  { latin: 'Urtica dioica', namePl: 'pokrzywa zwyczajna' },
-  { latin: 'Plantago major', namePl: 'babka zwyczajna' },
-  { latin: 'Achillea millefolium', namePl: 'krwawnik pospolity' },
-  { latin: 'Bellis perennis', namePl: 'stokrotka pospolita' },
-  { latin: 'Quercus robur', namePl: 'dąb szypułkowy' },
-  { latin: 'Betula pendula', namePl: 'brzoza brodawkowata' },
-  { latin: 'Acer platanoides', namePl: 'klon zwyczajny' },
-  { latin: 'Tilia cordata', namePl: 'lipa drobnolistna' },
-  { latin: 'Trifolium repens', namePl: 'koniczyna biała' },
+const FALLBACK: Names[] = [
+  { latin: 'Taraxacum officinale', namePl: 'mniszek lekarski', nameEn: 'dandelion' },
+  { latin: 'Urtica dioica', namePl: 'pokrzywa zwyczajna', nameEn: 'stinging nettle' },
+  { latin: 'Plantago major', namePl: 'babka zwyczajna', nameEn: 'greater plantain' },
+  { latin: 'Achillea millefolium', namePl: 'krwawnik pospolity', nameEn: 'yarrow' },
+  { latin: 'Bellis perennis', namePl: 'stokrotka pospolita', nameEn: 'daisy' },
+  { latin: 'Quercus robur', namePl: 'dąb szypułkowy', nameEn: 'pedunculate oak' },
+  { latin: 'Betula pendula', namePl: 'brzoza brodawkowata', nameEn: 'silver birch' },
+  { latin: 'Acer platanoides', namePl: 'klon zwyczajny', nameEn: 'Norway maple' },
+  { latin: 'Tilia cordata', namePl: 'lipa drobnolistna', nameEn: 'small-leaved lime' },
+  { latin: 'Trifolium repens', namePl: 'koniczyna biała', nameEn: 'white clover' },
 ];
 
-interface Question {
+export interface Question {
   species: SpeciesGroup;
   photo: Blob;
   options: string[];
@@ -25,45 +27,62 @@ interface Question {
   dueCount: number;
 }
 
-function displayName(s: { namePl: string; latin: string }): string {
-  return s.namePl || s.latin;
+export interface PickOpts {
+  lang: 'pl' | 'en';
+  anyway: boolean; // practice even if nothing is due
+  exclude?: string; // latin of the previous question, avoided when possible
+  now?: number;
+}
+
+/** Next question, or 'empty' (no species) / 'done' (nothing due and not practicing anyway). */
+export function pickQuestion(groups: SpeciesGroup[], srsList: Srs[], opts: PickOpts): Question | 'empty' | 'done' {
+  const now = opts.now ?? Date.now();
+  groups = groups.filter((g) => g.latin !== UNIDENTIFIED);
+  if (groups.length === 0) return 'empty';
+
+  const srsMap = new Map(srsList.map((s) => [s.latin, s]));
+  const withSrs = groups.map((g) => ({ g, srs: srsMap.get(g.latin) ?? newSrs(g.latin, now) }));
+  // Learning items (answered wrong) stay in the session instead of vanishing for 10 minutes.
+  const due = withSrs.filter((x) => x.srs.due <= now || isLearning(x.srs));
+  const dueCount = due.length;
+
+  let pool = due.length > 0 ? due : opts.anyway ? withSrs : [];
+  if (pool.length === 0) return 'done';
+  if (pool.length > 1 && opts.exclude) pool = pool.filter((x) => x.g.latin !== opts.exclude);
+  pool.sort((a, b) => a.srs.due - b.srs.due);
+  const species = pool[Math.floor(Math.random() * Math.min(3, pool.length))].g;
+  const photo = species.entries[Math.floor(Math.random() * species.entries.length)].photo;
+
+  // Distractors: other species first, then the fallback list; never a duplicate label.
+  const name = (n: Names) => displayName(n, opts.lang);
+  const correctOption = name(species);
+  const taken = new Set([correctOption]);
+  const distractors: string[] = [];
+  for (const n of [...shuffle(groups), ...shuffle(FALLBACK)]) {
+    if (n.latin === species.latin) continue;
+    const label = name(n);
+    if (taken.has(label)) continue;
+    taken.add(label);
+    distractors.push(label);
+    if (distractors.length === 3) break;
+  }
+
+  return { species, photo, options: shuffle([correctOption, ...distractors]), correctOption, dueCount };
 }
 
 export function Cards() {
   const [question, setQuestion] = useState<Question | null | 'empty' | 'done'>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [practiceAnyway, setPracticeAnyway] = useState(false);
+  const lastLatin = useRef<string | undefined>(undefined);
+  const lang = getSettings().descLang;
 
   async function nextQuestion(anyway = practiceAnyway) {
     setPicked(null);
-    const groups = (await speciesGroups()).filter((g) => g.latin !== UNIDENTIFIED);
-    if (groups.length === 0) return setQuestion('empty');
-
-    const now = Date.now();
-    const srsMap = new Map((await db.srs.toArray()).map((s) => [s.latin, s]));
-    const withDue = groups.map((g) => ({ g, srs: srsMap.get(g.latin) ?? newSrs(g.latin) }));
-    const due = withDue.filter((x) => x.srs.due <= now);
-    const dueCount = due.length;
-
-    let pool = due;
-    if (pool.length === 0) {
-      if (!anyway) return setQuestion('done');
-      pool = withDue;
-    }
-    pool.sort((a, b) => a.srs.due - b.srs.due);
-    const pick = pool[Math.floor(Math.random() * Math.min(3, pool.length))];
-    const species = pick.g;
-    const photo = species.entries[Math.floor(Math.random() * species.entries.length)].photo;
-
-    const correctOption = displayName(species);
-    const others = groups.filter((g) => g.latin !== species.latin).map(displayName);
-    const fallback = FALLBACK.filter(
-      (f) => f.latin !== species.latin && !others.includes(f.namePl) && f.namePl !== correctOption,
-    ).map(displayName);
-    const distractors = [...shuffle(others), ...shuffle(fallback)].slice(0, 3);
-    const options = shuffle([correctOption, ...distractors]);
-
-    setQuestion({ species, photo, options, correctOption, dueCount });
+    const [groups, srsList] = await Promise.all([speciesGroups(), db.srs.toArray()]);
+    const q = pickQuestion(groups, srsList, { lang, anyway, exclude: lastLatin.current });
+    if (typeof q === 'object') lastLatin.current = q.species.latin;
+    setQuestion(q);
   }
 
   useEffect(() => {
@@ -111,6 +130,7 @@ export function Cards() {
   // After answering, collapse to the options that matter.
   const shown = answered ? q.options.filter((o) => o === q.correctOption || o === picked) : q.options;
   const s = q.species;
+  const otherName = lang === 'pl' ? s.nameEn : s.namePl;
 
   return (
     <div class="card">
@@ -135,7 +155,7 @@ export function Cards() {
         <div class="reveal">
           <div class="sub">
             <i>{s.latin}</i>
-            {s.nameEn ? ` · ${s.nameEn}` : ''}
+            {otherName ? ` · ${otherName}` : ''}
           </div>
           {s.entries[0].description && <p class="desc clamp-3" style="margin-top:6px">{s.entries[0].description}</p>}
         </div>

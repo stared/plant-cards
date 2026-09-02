@@ -3,6 +3,45 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { db, type Entry, type Srs } from '../db';
 import { getSettings, saveSettings, DEFAULT_MODEL, type Settings } from '../settings';
 
+type ExportedEntry = Omit<Entry, 'photo'> & { photo: string };
+
+async function buildBackup(): Promise<{ file: File; count: number }> {
+  const entries = await db.entries.toArray();
+  const srs = await db.srs.toArray();
+  const files: Record<string, Uint8Array> = {};
+  const metaEntries: ExportedEntry[] = [];
+  for (const e of entries) {
+    const path = `photos/${e.id}.jpg`;
+    files[path] = new Uint8Array(await e.photo.arrayBuffer());
+    const { photo, ...rest } = e;
+    metaEntries.push({ ...rest, photo: path });
+  }
+  files['data.json'] = strToU8(
+    JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), entries: metaEntries, srs }, null, 1),
+  );
+  const zipped = zipSync(files, { level: 0 });
+  const name = `plant-cards-${new Date().toISOString().slice(0, 10)}.zip`;
+  return { file: new File([zipped.buffer as ArrayBuffer], name, { type: 'application/zip' }), count: entries.length };
+}
+
+/** Share sheet on iOS (downloads don't work in home-screen apps); plain download elsewhere. */
+async function saveFile(file: File): Promise<'shared' | 'downloaded'> {
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: file.name });
+      return 'shared';
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return 'shared'; // user cancelled
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
+  return 'downloaded';
+}
+
 export function SettingsView() {
   const [s, setS] = useState<Settings>(getSettings());
   const [storageInfo, setStorageInfo] = useState('');
@@ -25,27 +64,13 @@ export function SettingsView() {
 
   async function exportZip() {
     setMsg('Exporting…');
-    const entries = await db.entries.toArray();
-    const srs = await db.srs.toArray();
-    const files: Record<string, Uint8Array> = {};
-    const metaEntries = [];
-    for (const e of entries) {
-      const path = `photos/${e.id}.jpg`;
-      files[path] = new Uint8Array(await e.photo.arrayBuffer());
-      const { photo, ...rest } = e;
-      metaEntries.push({ ...rest, photo: path });
+    try {
+      const { file, count } = await buildBackup();
+      await saveFile(file);
+      setMsg(`Exported ${count} entries.`);
+    } catch (e) {
+      setMsg(`Export failed: ${e instanceof Error ? e.message : e}`);
     }
-    files['data.json'] = strToU8(
-      JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), entries: metaEntries, srs }, null, 1),
-    );
-    const zipped = zipSync(files, { level: 0 });
-    const blob = new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `plant-cards-${new Date().toISOString().slice(0, 10)}.zip`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
-    setMsg(`Exported ${entries.length} entries.`);
   }
 
   async function importZip(ev: Event) {
@@ -57,19 +82,26 @@ export function SettingsView() {
     try {
       const unzipped = unzipSync(new Uint8Array(await file.arrayBuffer()));
       const data = JSON.parse(strFromU8(unzipped['data.json']));
+      // Skip entries already present (same species + timestamp) so re-importing doesn't duplicate.
+      const existing = new Set((await db.entries.toArray()).map((e) => `${e.latin}|${e.takenAt}`));
       let added = 0;
-      for (const m of data.entries as (Omit<Entry, 'photo'> & { photo: string })[]) {
+      let skipped = 0;
+      for (const m of data.entries as ExportedEntry[]) {
         const bytes = unzipped[m.photo];
         if (!bytes) continue;
+        if (existing.has(`${m.latin}|${m.takenAt}`)) {
+          skipped++;
+          continue;
+        }
         const { id, photo, ...rest } = m;
         await db.entries.add({ ...rest, photo: new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' }) } as Entry);
         added++;
       }
       for (const sr of (data.srs ?? []) as Srs[]) {
-        const existing = await db.srs.get(sr.latin);
-        if (!existing) await db.srs.put(sr);
+        const current = await db.srs.get(sr.latin);
+        if (!current) await db.srs.put(sr);
       }
-      setMsg(`Imported ${added} entries.`);
+      setMsg(`Imported ${added} entries${skipped ? `, ${skipped} already present` : ''}.`);
     } catch (e) {
       setMsg(`Import failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -89,6 +121,8 @@ export function SettingsView() {
         <div class="label">OpenRouter API key</div>
         <input
           type="password"
+          name="openrouter-key"
+          autocomplete="off"
           value={s.apiKey}
           placeholder="sk-or-…"
           onInput={(e) => set('apiKey', (e.currentTarget as HTMLInputElement).value.trim())}
@@ -102,7 +136,8 @@ export function SettingsView() {
           placeholder={DEFAULT_MODEL}
           autocapitalize="off"
           autocorrect="off"
-          onInput={(e) => set('model', (e.currentTarget as HTMLInputElement).value.trim() || DEFAULT_MODEL)}
+          autocomplete="off"
+          onInput={(e) => set('model', (e.currentTarget as HTMLInputElement).value)}
         />
       </div>
       <div class="field">
