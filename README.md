@@ -5,6 +5,8 @@ Minimal local-first PWA: photograph a plant, an LLM (via OpenRouter) identifies 
 location. Browse your collection grouped by species, or drill them as flashcards with
 simple spaced repetition.
 
+<img src="docs/screenshot.jpeg" alt="Plant Cards on iPhone: identified rubber plant with candidates, date, location and description" width="320">
+
 ## Run
 
 ```sh
