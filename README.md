@@ -1,11 +1,13 @@
 # Plant Cards
 
+**Live app: https://p.migdal.pl/plant-cards/**
+
+<img src="docs/screenshot.jpeg" alt="Plant Cards on iPhone: identified rubber plant with candidates, date, location and description" width="320">
+
 Minimal local-first PWA: photograph a plant, an LLM (via OpenRouter) identifies it
 (Polish/English/Latin names + short description), the photo is saved with datetime and
 location. Browse your collection grouped by species, or drill them as flashcards with
 simple spaced repetition.
-
-<img src="docs/screenshot.jpeg" alt="Plant Cards on iPhone: identified rubber plant with candidates, date, location and description" width="320">
 
 ## Run
 
